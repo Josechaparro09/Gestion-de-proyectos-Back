@@ -13,7 +13,7 @@ def inicializar_firebase():
             # Check if running on Vercel
             if os.environ.get('VERCEL'):
                 # Get credentials from environment variable
-                cred_dict = json.loads(os.environ.get('FIREBASE_CREDENTIALS', '{}'))
+                cred_dict = json.loads(os.environ.get('FIREBASE_CREDENTIALS_PATH', '{}'))
                 cred = credentials.Certificate(cred_dict)
             else:
                 # Local development - use file path
