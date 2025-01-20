@@ -23,7 +23,6 @@ def inicializar_firebase():
             # Initialize with specific options for serverless
             firebase_admin.initialize_app(cred, {
                 'projectId': os.environ.get('FIREBASE_PROJECT_ID'),
-                'storageBucket': os.environ.get('FIREBASE_STORAGE_BUCKET')
             })
             
             db = firestore.client()
