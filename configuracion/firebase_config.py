@@ -10,7 +10,7 @@ load_dotenv()
 def inicializar_firebase():
     if not firebase_admin._apps:
         try:
-            cred_path = 'configuracion/hackaton-b96e0-firebase-adminsdk-mcv6w-d484e4c384.json'
+            cred_path = 'hackaton-b96e0-firebase-adminsdk-mcv6w-d484e4c384.json'
             cred = credentials.Certificate(cred_path)
             firebase_admin.initialize_app(cred)
             db = firestore.client()
