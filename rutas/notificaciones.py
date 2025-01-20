@@ -1,3 +1,4 @@
+#BACKEND rutas\notificaciones.py
 from configuracion.firebase_config import NOTIFICACIONES
 from datetime import datetime
 

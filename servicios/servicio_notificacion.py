@@ -1,3 +1,4 @@
+#BACKEND servicios\servicio_notificacion.py
 from flask import Blueprint, request, jsonify
 from firebase_admin import firestore
 from datetime import datetime

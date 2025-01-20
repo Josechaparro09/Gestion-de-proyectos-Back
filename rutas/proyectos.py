@@ -1,4 +1,4 @@
-# rutas/proyectos.py
+#BACKEND rutas/proyectos.py
 from flask import Blueprint, jsonify, request
 
 proyectos_bp = Blueprint('proyectos', __name__)

@@ -1,3 +1,4 @@
+#BACKEND app.py
 from flask import Flask
 from flask_cors import CORS
 from flasgger import Swagger
@@ -14,8 +15,15 @@ from configuracion.supabase_configuration import inicializar_supabase
 app = Flask(__name__)
 
 # Configuración de CORS
-CORS(app, origins=["http://localhost:5173"], 
-     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+CORS(app, 
+     resources={
+         r"/*": {
+             "origins": ["http://localhost:5173"],
+             "allow_headers": ["Content-Type", "Authorization"],
+             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+             "supports_credentials": True
+         }
+     })
 
 # Configuración de Swagger
 swagger_config = {

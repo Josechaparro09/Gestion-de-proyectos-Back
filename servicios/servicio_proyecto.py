@@ -72,8 +72,8 @@ def calcular_avance_fase(datos_fase):
    
    
    
-@proyecto_bp.route('/<proyecto_id>/archivo', methods=['POST'])
-def subir_archivo_proyecto(proyecto_id):
+# @proyecto_bp.route('/<proyecto_id>/archivo', methods=['POST'])
+# def subir_archivo_proyecto(proyecto_id):
     try:
         if 'archivo' not in request.files:
             return jsonify({'error': 'No se envió ningún archivo'}), 400
@@ -127,54 +127,140 @@ def subir_archivo_proyecto(proyecto_id):
         return jsonify({'error': str(e)}), 400
 
 @proyecto_bp.route('/<proyecto_id>/fase/<fase>/entrega/archivo', methods=['POST'])
+@swag_from({
+    'tags': ['Entregas'],
+    'summary': 'Crear una nueva entrega con archivo',
+    'description': 'Endpoint para crear una nueva entrega en una fase de proyecto, con la opción de subir un archivo.',
+    'consumes': ['multipart/form-data'],
+    'parameters': [
+        {
+            'name': 'proyecto_id',
+            'in': 'path',
+            'type': 'string',
+            'required': True,
+            'description': 'ID del proyecto'
+        },
+        {
+            'name': 'fase',
+            'in': 'path',
+            'type': 'string',
+            'required': True,
+            'description': 'Nombre de la fase'
+        },
+        {
+            'name': 'titulo',
+            'in': 'formData',
+            'type': 'string',
+            'required': True,
+            'description': 'Título de la entrega'
+        },
+        {
+            'name': 'descripcion',
+            'in': 'formData',
+            'type': 'string',
+            'required': False,
+            'description': 'Descripción de la entrega'
+        },
+        {
+            'name': 'fecha_entrega',
+            'in': 'formData',
+            'type': 'string',
+            'format': 'date',
+            'required': True,
+            'description': 'Fecha límite de la entrega'
+        },
+        {
+            'name': 'archivo',
+            'in': 'formData',
+            'type': 'file',
+            'required': False,
+            'description': 'Archivo de la entrega'
+        }
+    ],
+    'responses': {
+        200: {
+            'description': 'Entrega creada exitosamente',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'mensaje': {'type': 'string'},
+                    'entrega': {
+                        'type': 'object',
+                        'properties': {
+                            'id': {'type': 'string'},
+                            'titulo': {'type': 'string'},
+                            'descripcion': {'type': 'string'},
+                            'fecha_entrega': {'type': 'string', 'format': 'date'},
+                            'archivo': {
+                                'type': 'object',
+                                'properties': {
+                                    'nombre_original': {'type': 'string'},
+                                    'nombre_storage': {'type': 'string'},
+                                    'ruta_storage': {'type': 'string'},
+                                    'url': {'type': 'string'}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        400: {
+            'description': 'Error al crear la entrega',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'error': {'type': 'string'}
+                }
+            }
+        }
+    }
+})
 def subir_archivo_entrega(proyecto_id, fase):
     try:
-        if 'archivo' not in request.files:
-            return jsonify({'error': 'No se envió ningún archivo'}), 400
-            
-        archivo = request.files['archivo']
-        if archivo.filename == '' or not allowed_file(archivo.filename):
-            return jsonify({'error': 'Archivo no válido'}), 400
-            
-        # Generar nombre único
-        filename = secure_filename(archivo.filename)
-        unique_filename = f"{uuid.uuid4()}_{filename}"
-        # Ruta siguiendo la estructura: archivos/proyectos/[proyecto_id]/entregas/[fase]/
-        file_path = f"{BASE_PATH}/{proyecto_id}/entregas/{fase}/{unique_filename}"
+        # Validar campos requeridos
+        print("Headers recibidos:", request.headers)
+        print("Contenido de form:", request.form)
+        print("Archivos recibidos:", request.files)
+
+        # Validaciones más estrictas
+        titulo = request.form.get('titulo')
+        descripcion = request.form.get('descripcion', '')
+        fecha_entrega = request.form.get('fecha_entrega')
         
-        # Subir a Supabase
-        response = supabase.storage \
-            .from_(BUCKET_NAME) \
-            .upload(file_path, archivo.read())
-            
-        if response.error:
-            return jsonify({'error': 'Error al subir el archivo'}), 400
-            
-        # Obtener URL
-        file_url = supabase.storage \
-            .from_(BUCKET_NAME) \
-            .get_public_url(file_path)
-            
-        # Metadata del archivo
-        metadata = {
-            'nombre_original': filename,
-            'nombre_storage': unique_filename,
-            'ruta': file_path,
-            'url': file_url,
-            'tipo': archivo.content_type,
-            'fecha_subida': str(datetime.now())
-        }
+        if not titulo:
+            return jsonify({'error': 'El título es obligatorio'}), 400
         
-        # Crear entrega con el archivo
+        if not fecha_entrega:
+            return jsonify({'error': 'La fecha de entrega es obligatoria'}), 400
+
+        # Metadata para la entrega
+        metadata_archivo = None
+        
+        # Manejo del archivo (opcional)
+        if 'archivo' in request.files:
+            archivo = request.files['archivo']
+            
+            if archivo.filename:
+                # Utilizar la función de subida de archivos con Supabase
+                metadata_archivo = subir_archivo_supabase(
+                    archivo, 
+                    proyecto_id, 
+                    subcarpeta=f'entregas/{fase}',
+                    usuario_id=request.form.get('usuario_id')
+                )
+        
+        # Crear objeto de entrega
         entrega = {
             'id': str(datetime.now().timestamp()),
-            'titulo': request.form.get('titulo', 'Nueva entrega'),
-            'descripcion': request.form.get('descripcion', ''),
-            'fecha_entrega': str(datetime.now()),
-            'archivo': metadata
+            'titulo': titulo,
+            'descripcion': descripcion,
+            'fecha_entrega': fecha_entrega,
+            'fecha_creacion': str(datetime.now()),
+            'archivo': metadata_archivo
         }
         
-        # Actualizar proyecto
+        # Actualizar proyecto en Firestore
         PROYECTOS.document(proyecto_id).update({
             f'fases.{fase}.entregas': firestore.ArrayUnion([entrega])
         })
@@ -182,39 +268,44 @@ def subir_archivo_entrega(proyecto_id, fase):
         return jsonify({
             'mensaje': 'Entrega creada exitosamente',
             'entrega': entrega
-        })
+        }), 200
+    
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
-    
-    
-@proyecto_bp.route('/<proyecto_id>/archivo/<filename>', methods=['DELETE'])
-def eliminar_archivo_proyecto(proyecto_id, filename):
-    try:
-        # Path completo para eliminar archivo
-        file_path = f"{BASE_PATH}/{proyecto_id}/{filename}"
-        
-        # Eliminar archivo de Supabase
-        response = supabase.storage \
-            .from_(BUCKET_NAME) \
-            .remove([file_path])
-            
-        if response.error:
-            return jsonify({'error': 'Error al eliminar el archivo'}), 400
-            
-        # Actualizar documento del proyecto
-        proyecto = PROYECTOS.document(proyecto_id).get().to_dict()
-        archivos = proyecto.get('archivos', [])
-        archivos = [a for a in archivos if a['nombre_storage'] != filename]
-        
-        PROYECTOS.document(proyecto_id).update({
-            'archivos': archivos
-        })
-        
+        # Loggear el error para depuración
+        print(f"Error al crear entrega: {str(e)}")
         return jsonify({
-            'mensaje': 'Archivo eliminado exitosamente'
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+            'error': f'Error al crear la entrega: {str(e)}'
+        }), 400
+    
+    
+# @proyecto_bp.route('/<proyecto_id>/archivo/<filename>', methods=['DELETE'])
+# def eliminar_archivo_proyecto(proyecto_id, filename):
+#     try:
+#         # Path completo para eliminar archivo
+#         file_path = f"{BASE_PATH}/{proyecto_id}/{filename}"
+        
+#         # Eliminar archivo de Supabase
+#         response = supabase.storage \
+#             .from_(BUCKET_NAME) \
+#             .remove([file_path])
+            
+#         if response.error:
+#             return jsonify({'error': 'Error al eliminar el archivo'}), 400
+            
+#         # Actualizar documento del proyecto
+#         proyecto = PROYECTOS.document(proyecto_id).get().to_dict()
+#         archivos = proyecto.get('archivos', [])
+#         archivos = [a for a in archivos if a['nombre_storage'] != filename]
+        
+#         PROYECTOS.document(proyecto_id).update({
+#             'archivos': archivos
+#         })
+        
+#         return jsonify({
+#             'mensaje': 'Archivo eliminado exitosamente'
+#         })
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 400
     
 @proyecto_bp.route('/<proyecto_id>/archivos', methods=['GET'])
 def obtener_archivos_proyecto(proyecto_id):
@@ -379,6 +470,123 @@ def crear_proyecto():
     except Exception as e:
         print(f"Error creating project: {str(e)}")
         return jsonify({'error': f'Error al crear el proyecto: {str(e)}'}), 400
+    
+    
+@proyecto_bp.route('/<proyecto_id>', methods=['PUT'])
+@swag_from({
+    'tags': ['Proyectos'],
+    'summary': 'Actualizar un proyecto existente',
+    'description': 'Este endpoint permite actualizar la información de un proyecto existente.',
+    'parameters': [
+        {
+            'name': 'proyecto_id',
+            'in': 'path',
+            'required': True,
+            'type': 'string',
+            'description': 'ID del proyecto a actualizar'
+        },
+        {
+            'name': 'body',
+            'in': 'body',
+            'required': True,
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'titulo': {'type': 'string', 'description': 'Nuevo título del proyecto'},
+                    'descripcion': {'type': 'string', 'description': 'Nueva descripción del proyecto'},
+                    'fecha_inicio': {'type': 'string', 'format': 'date', 'description': 'Nueva fecha de inicio'},
+                    'fecha_fin': {'type': 'string', 'format': 'date', 'description': 'Nueva fecha de fin'},
+                    'estado': {'type': 'string', 'description': 'Nuevo estado del proyecto'},
+                    'facultad': {'type': 'string', 'description': 'Nueva facultad del proyecto'},
+                    'carrera': {'type': 'string', 'description': 'Nueva carrera del proyecto'}
+                }
+            }
+        }
+    ],
+    'responses': {
+        200: {
+            'description': 'Proyecto actualizado exitosamente',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'mensaje': {'type': 'string'},
+                    'proyecto': {
+                        'type': 'object',
+                        'properties': {
+                            'id': {'type': 'string'},
+                            'titulo': {'type': 'string'},
+                            'descripcion': {'type': 'string'},
+                            'fecha_inicio': {'type': 'string'},
+                            'fecha_fin': {'type': 'string'},
+                            'estado': {'type': 'string'},
+                            'facultad': {'type': 'string'},
+                            'carrera': {'type': 'string'}
+                        }
+                    }
+                }
+            }
+        },
+        404: {
+            'description': 'Proyecto no encontrado',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'error': {'type': 'string'}
+                }
+            }
+        },
+        400: {
+            'description': 'Error en la solicitud',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'error': {'type': 'string'}
+                }
+            }
+        }
+    }
+})
+def actualizar_proyecto(proyecto_id):
+    try:
+        datos = request.get_json()
+        
+        # Verificar si el proyecto existe
+        proyecto_ref = PROYECTOS.document(proyecto_id)
+        proyecto = proyecto_ref.get()
+        
+        if not proyecto.exists:
+            return jsonify({'error': 'Proyecto no encontrado'}), 404
+            
+        # Actualizar solo los campos proporcionados
+        campos_actualizables = [
+            'titulo', 'descripcion', 'fecha_inicio', 'fecha_fin', 
+            'estado', 'facultad', 'carrera'
+        ]
+        
+        actualizaciones = {}
+        for campo in campos_actualizables:
+            if campo in datos:
+                actualizaciones[campo] = datos[campo]
+        
+        if not actualizaciones:
+            return jsonify({'error': 'No se proporcionaron campos para actualizar'}), 400
+            
+        # Realizar la actualización
+        proyecto_ref.update(actualizaciones)
+        
+        # Obtener el proyecto actualizado
+        proyecto_actualizado = proyecto_ref.get().to_dict()
+        
+        return jsonify({
+            'mensaje': 'Proyecto actualizado exitosamente',
+            'proyecto': {
+                'id': proyecto_id,
+                **proyecto_actualizado
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
     
 @proyecto_bp.route('/proyecto/<proyecto_id>/nueva-tarea', methods=['POST'])
 @swag_from({
@@ -2187,3 +2395,291 @@ def eliminar_comentario(proyecto_id, fase, comentario_index):
         return jsonify({
             'error': f'Error al eliminar comentario: {str(e)}'
         }), 500
+        
+# Añadir estas importaciones al inicio de tu servicio_proyecto.py
+from werkzeug.utils import secure_filename
+from utils.storage_utils import (
+    subir_archivo_supabase, 
+    eliminar_archivo_supabase, 
+    listar_archivos_proyecto
+)
+
+# Ejemplo de endpoint para subir archivo de proyecto
+@proyecto_bp.route('/<proyecto_id>/archivo', methods=['POST'])
+@swag_from({
+    'tags': ['Archivos'],
+    'summary': 'Subir archivo a un proyecto',
+    'description': 'Endpoint para subir un archivo a un proyecto específico utilizando Supabase Storage.',
+    'consumes': ['multipart/form-data'],
+    'parameters': [
+        {
+            'name': 'proyecto_id',
+            'in': 'path',
+            'type': 'string',
+            'required': True,
+            'description': 'ID del proyecto al que se subirá el archivo'
+        },
+        {
+            'name': 'archivo',
+            'in': 'formData',
+            'type': 'file',
+            'required': True,
+            'description': 'Archivo a subir'
+        },
+        {
+            'name': 'usuario_id',
+            'in': 'formData',
+            'type': 'string',
+            'required': False,
+            'description': 'ID del usuario que sube el archivo'
+        }
+    ],
+    'responses': {
+        200: {
+            'description': 'Archivo subido exitosamente',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'mensaje': {'type': 'string'},
+                    'archivo': {
+                        'type': 'object',
+                        'properties': {
+                            'nombre_original': {'type': 'string'},
+                            'nombre_storage': {'type': 'string'},
+                            'ruta_storage': {'type': 'string'},
+                            'url': {'type': 'string'},
+                            'tipo_mime': {'type': 'string'},
+                            'tamano': {'type': 'integer'},
+                            'fecha_subida': {'type': 'string', 'format': 'date-time'},
+                            'subido_por': {'type': 'string'}
+                        }
+                    }
+                }
+            }
+        },
+        400: {
+            'description': 'Error al subir el archivo',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'error': {'type': 'string'}
+                }
+            }
+        }
+    }
+})
+def subir_archivo_proyecto(proyecto_id):
+    """
+    Endpoint para subir un archivo a un proyecto
+    """
+    try:
+        # Verificar que se envió un archivo
+        if 'archivo' not in request.files:
+            return jsonify({'error': 'No se envió ningún archivo'}), 400
+        
+        archivo = request.files['archivo']
+        
+        # Validar que el archivo tenga un nombre
+        if archivo.filename == '':
+            return jsonify({'error': 'Nombre de archivo vacío'}), 400
+        
+        # Obtener usuario que sube el archivo (opcional)
+        usuario_id = request.form.get('usuario_id')
+        
+        # Subir archivo a Supabase
+        metadata_archivo = subir_archivo_supabase(
+            archivo, 
+            proyecto_id, 
+            subcarpeta='documentos', 
+            usuario_id=usuario_id
+        )
+        
+        # Actualizar documento del proyecto en Firestore
+        proyecto_ref = PROYECTOS.document(proyecto_id)
+        proyecto_ref.update({
+            'archivos': firestore.ArrayUnion([metadata_archivo])
+        })
+        
+        return jsonify({
+            'mensaje': 'Archivo subido exitosamente',
+            'archivo': metadata_archivo
+        }), 200
+    
+    except Exception as e:
+        return jsonify({
+            'error': f'Error al subir archivo: {str(e)}'
+        }), 400
+
+# Endpoint para eliminar archivo de proyecto
+@proyecto_bp.route('/<proyecto_id>/archivo/<nombre_archivo>', methods=['DELETE'])
+@swag_from({
+    'tags': ['Archivos'],
+    'summary': 'Eliminar archivo de un proyecto',
+    'description': 'Endpoint para eliminar un archivo específico de un proyecto utilizando Supabase Storage.',
+    'parameters': [
+        {
+            'name': 'proyecto_id',
+            'in': 'path',
+            'type': 'string',
+            'required': True,
+            'description': 'ID del proyecto'
+        },
+        {
+            'name': 'nombre_archivo',
+            'in': 'path',
+            'type': 'string',
+            'required': True,
+            'description': 'Nombre del archivo en el storage'
+        }
+    ],
+    'responses': {
+        200: {
+            'description': 'Archivo eliminado exitosamente',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'mensaje': {'type': 'string'}
+                }
+            }
+        },
+        404: {
+            'description': 'Archivo no encontrado',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'error': {'type': 'string'}
+                }
+            }
+        },
+        500: {
+            'description': 'Error al eliminar el archivo',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'error': {'type': 'string'}
+                }
+            }
+        }
+    }
+})
+def eliminar_archivo_proyecto(proyecto_id, nombre_archivo):
+    """
+    Endpoint para eliminar un archivo de un proyecto
+    """
+    try:
+        # Obtener el proyecto
+        proyecto_ref = PROYECTOS.document(proyecto_id)
+        proyecto = proyecto_ref.get().to_dict()
+        
+        # Buscar el archivo en los metadatos del proyecto
+        archivos = proyecto.get('archivos', [])
+        archivo_a_eliminar = next(
+            (archivo for archivo in archivos if archivo['nombre_storage'] == nombre_archivo), 
+            None
+        )
+        
+        if not archivo_a_eliminar:
+            return jsonify({'error': 'Archivo no encontrado'}), 404
+        
+        # Eliminar archivo de Supabase
+        eliminado = eliminar_archivo_supabase(archivo_a_eliminar['ruta_storage'])
+        
+        if eliminado:
+            # Eliminar referencia del archivo en Firestore
+            proyecto_ref.update({
+                'archivos': firestore.ArrayRemove([archivo_a_eliminar])
+            })
+            
+            return jsonify({
+                'mensaje': 'Archivo eliminado exitosamente'
+            }), 200
+        else:
+            return jsonify({
+                'error': 'No se pudo eliminar el archivo'
+            }), 500
+    
+    except Exception as e:
+        return jsonify({
+            'error': f'Error al eliminar archivo: {str(e)}'
+        }), 400
+
+# Endpoint para listar archivos de un proyecto
+@proyecto_bp.route('/<proyecto_id>/archivos', methods=['GET'])
+@swag_from({
+    'tags': ['Archivos'],
+    'summary': 'Listar archivos de un proyecto',
+    'description': 'Endpoint para obtener la lista de archivos de un proyecto desde Supabase Storage y sus metadatos de Firestore.',
+    'parameters': [
+        {
+            'name': 'proyecto_id',
+            'in': 'path',
+            'type': 'string',
+            'required': True,
+            'description': 'ID del proyecto'
+        }
+    ],
+    'responses': {
+        200: {
+            'description': 'Lista de archivos obtenida exitosamente',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'archivos_supabase': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'description': 'Metadatos del archivo según la respuesta de Supabase Storage'
+                        }
+                    },
+                    'archivos_metadata': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'nombre_original': {'type': 'string'},
+                                'nombre_storage': {'type': 'string'},
+                                'ruta_storage': {'type': 'string'},
+                                'url': {'type': 'string'},
+                                'tipo_mime': {'type': 'string'},
+                                'tamano': {'type': 'integer'},
+                                'fecha_subida': {'type': 'string', 'format': 'date-time'},
+                                'subido_por': {'type': 'string'}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        400: {
+            'description': 'Error al listar archivos',
+            'schema': {
+                'type': 'object',
+                'properties': {
+                    'error': {'type': 'string'}
+                }
+            }
+        }
+    }
+})
+
+def listar_archivos_de_proyecto(proyecto_id):
+    """
+    Endpoint para listar todos los archivos de un proyecto
+    """
+    try:
+        # Obtener archivos desde Supabase
+        archivos_supabase = listar_archivos_proyecto(proyecto_id)
+        
+        # Obtener metadatos de archivos desde Firestore
+        proyecto = PROYECTOS.document(proyecto_id).get().to_dict()
+        archivos_metadata = proyecto.get('archivos', [])
+        
+        return jsonify({
+            'archivos_supabase': archivos_supabase,
+            'archivos_metadata': archivos_metadata
+        }), 200
+    
+    except Exception as e:
+        return jsonify({
+            'error': f'Error al listar archivos: {str(e)}'
+        }), 400
