@@ -2683,3 +2683,41 @@ def listar_archivos_de_proyecto(proyecto_id):
         return jsonify({
             'error': f'Error al listar archivos: {str(e)}'
         }), 400
+        
+@proyecto_bp.route('/crearsupa', methods=['POST'])
+def crear_proyecto_supabase():
+    try:
+        datos = request.get_json()
+        
+        # Validar campos requeridos
+        required_fields = ['titulo', 'descripcion', 'fecha_inicio', 'fecha_fin', 'lider_id']
+        for field in required_fields:
+            if not datos.get(field):
+                return jsonify({'error': f'El campo {field} es requerido'}), 400
+
+        # Crear el proyecto en Supabase
+        nuevo_proyecto = {
+            'titulo': datos['titulo'],
+            'descripcion': datos['descripcion'],
+            'fecha_inicio': datos['fecha_inicio'],
+            'fecha_fin': datos['fecha_fin'],
+            'lider_id': datos['lider_id'],
+            'docente_id': datos.get('docente_id'),
+            'colaboradores_ids': datos.get('colaboradores', []),
+            'facultad': datos.get('facultad'),
+            'carrera': datos.get('carrera'),
+            'estado': 'activo',
+        }
+
+        response = supabase.table('proyectos').insert(nuevo_proyecto).execute()
+        
+        if len(response.data) > 0:
+            return jsonify({
+                'mensaje': 'Proyecto creado exitosamente',
+                'proyecto': response.data[0]
+            }), 201
+        else:
+            return jsonify({'error': 'Error al crear el proyecto'}), 400
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
