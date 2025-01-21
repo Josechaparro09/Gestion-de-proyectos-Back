@@ -10,8 +10,8 @@ load_dotenv()
 def inicializar_firebase():
     if not firebase_admin._apps:
         try:
-            cred_path = os.getenv('FIREBASE_CREDENTIALS_PATH')
-            cred = credentials.Certificate(cred_path)
+
+            cred = credentials.Certificate("Key.json")
             firebase_admin.initialize_app(cred)
             db = firestore.client()
             print("Conexión con Firebase establecida correctamente")
